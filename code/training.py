@@ -88,7 +88,7 @@ def main(config):
 
     # Create output directory with a timestamp for saving checkpoints.
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
-    output_dir = os.path.join(config.output_path, 'eeg_pretrain', timestamp)
+    output_dir = os.path.join(config.output_path, 'imu_pretrain', timestamp)
     os.makedirs(output_dir, exist_ok=True)
 
     # Save config details for reproducibility.
