@@ -49,6 +49,7 @@ def get_args_parser():
     parser.add_argument('--warmup_epochs', default=10, type=int, help='number of warmup epochs')
     parser.add_argument('--min_lr', default=1e-6, type=float, help='minimum learning rate after decay')
     parser.add_argument('--clip_grad', default=1.0, type=float, help='gradient clipping value')
+
     
     # Model parameters
     parser.add_argument('--time_len', default=128, type=int, help='length of the time series')
@@ -80,100 +81,99 @@ def main(config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
-    
-    # Update configuration for EEG dimensions:
-    config.time_len = 128     # Our EEG/IMU sample length
+
+    # Update configuration for IMU dimensions
+    config.time_len = 128     # Our IMU sample length
     config.in_chans = 6       # Number of features per time step
-    
+
     # Create output directory with a timestamp for saving checkpoints.
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
     output_dir = os.path.join(config.output_path, 'eeg_pretrain', timestamp)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Save config details for reproducibility.
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
         for attr, value in config.__dict__.items():
             f.write(f"{attr}: {value}\n")
-    
-    # Create the dataset instance.
-    # You can modify the parameters below (subjects_per_batch, files_per_subject) if needed.
+
+    # Create the dataset instance
     dataset = IMUDataset(
-        root_dir=config.root_path,  # Using data_path from args; ensure it points to your processed_data folder.
-        window_size=config.time_len,  # 128 rows per sample.
-        features=config.in_chans,     # 6 features per time step.
-        subjects_per_batch=32,        # Adjust as needed.
-        files_per_subject=4,          # Adjust as needed.
-        transform=None                # Add any transforms if required.
+        root_dir=config.root_path,
+        window_size=config.time_len,
+        features=config.in_chans,
+        subjects_per_batch=32,
+        files_per_subject=4,
+        transform=None
     )
     print(f"Dataset size: {len(dataset)}; Data length per sample: {config.time_len}")
 
-    # Create DataLoader (using 4 workers and pin_memory for efficient GPU transfer).
+    # Create DataLoader
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True,
                             num_workers=4, pin_memory=True)
-    
-    # Create the MAE model.
-    # Note: Here we set time_len=128, patch_size=4, in_chans=6, embed_dim=1024, etc.
+
+    # Create IMUAdapter and place it on device
+    imu_adapter = IMUAdapter(out_chans=128, out_time=512).to(device)
+
+    # Create the MAE model (expects [batch, 512, 128])
     model = MAEforEEG(
-        time_len=config.time_len,
+        time_len=512,
         patch_size=config.patch_size,
         embed_dim=config.embed_dim,
-        in_chans=config.in_chans,
+        in_chans=128,
         depth=config.depth,
         num_heads=config.num_heads,
         decoder_embed_dim=config.decoder_embed_dim,
-        decoder_depth=8,  # You can adjust decoder depth; or use config if available.
+        decoder_depth=8,
         decoder_num_heads=config.decoder_num_heads,
         mlp_ratio=config.mlp_ratio,
         img_recon_weight=config.img_recon_weight,
         use_nature_img_loss=config.use_nature_img_loss
     )
     model.to(device)
-    
-    # For simplicity, we do not wrap the model in DistributedDataParallel here.
-    model_without_ddp = model  # For checkpoint saving and any operations that require the base model.
-    
-    # Create optimizer.
-    optimizer = torch.optim.AdamW(model.parameters(),
-                                  lr=config.lr,
-                                  weight_decay=config.weight_decay,
-                                  betas=(0.9, 0.95))
-    
-    # Create gradient scaler for mixed precision training.
+    model_without_ddp = model
+
+    # Optimizer and loss scaler
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr,
+                                  weight_decay=config.weight_decay, betas=(0.9, 0.95))
     loss_scaler = NativeScaler()
-    
-    # Training loop.
-    print("Starting EEG MAE pretraining...")
+
+    # Training loop
+    print("Starting IMU MAE pretraining...")
     start_time = time.time()
     cor_list = []
-    
+
     for epoch in range(config.num_epoch):
-        # Adjust learning rate based on epoch (cosine decay with warmup).
         current_lr = adjust_learning_rate(optimizer, epoch, config)
         print(f"Epoch {epoch+1}/{config.num_epoch} | LR: {current_lr:.6f}")
-        
-        # Train one epoch (train_one_epoch returns a correlation metric as a performance indicator).
-        cor = train_one_epoch(model, dataloader, optimizer, device, epoch,
+
+        # Wrap dataloader to insert IMUAdapter processing before training
+        def adapted_dataloader():
+            for batch in dataloader:
+                batch = batch.to(device)  # shape: [B, 128, 6]
+                batch = imu_adapter(batch)  # shape: [B, 512, 128]
+                yield batch
+
+        # Train for one epoch using adapted data
+        cor = train_one_epoch(model, adapted_dataloader(), optimizer, device, epoch,
                               loss_scaler, log_writer=None, config=config, start_time=start_time,
                               model_without_ddp=model_without_ddp)
         cor_list.append(cor)
-        
-        # Print the correlation (as a proxy for loss) epochs.
         print(f"Epoch {epoch+1}: Average correlation: {cor:.4f}")
-        
-        # Save checkpoints every 20 epochs and at the final epoch.
+
+        # Save checkpoint
         if (epoch % 20 == 0) or (epoch + 1 == config.num_epoch):
             checkpoint_dir = os.path.join(output_dir, 'checkpoints')
             os.makedirs(checkpoint_dir, exist_ok=True)
             save_model(config, epoch, model_without_ddp, optimizer, loss_scaler, checkpoint_dir)
             print(f"Checkpoint saved at epoch {epoch+1}.")
-    
+
+    # Final save
     total_time = time.time() - start_time
     print(f"Training completed in {str(datetime.timedelta(seconds=int(total_time)))}")
-    
-    # Save the final model weights.
     final_model_path = os.path.join(output_dir, 'final_model.pth')
     torch.save(model_without_ddp.state_dict(), final_model_path)
     print(f"Final model weights saved at {final_model_path}")
+
 
 if __name__ == '__main__':
     # Create the configuration object from config.py
