@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
+import torch.nn.functional as F
 
 # Import configuration and modules from your project files.
 from config import Config_MBM_EEG
@@ -23,15 +24,21 @@ class IMUAdapter(nn.Module):
             nn.ReLU(),
             nn.Conv1d(out_chans, out_chans, kernel_size=3, padding=1)
         )
-        self.upsample = nn.Upsample(size=out_time, mode='nearest', align_corners=False)  # Upsample time dimension from 128 to out_time (512)
+        self.out_time = out_time
 
     def forward(self, x):
-        # x: [B, 128, 6] where 128 is timestamp dimension and 6 is channels.
-        # Permute to [B, 6, 128] for Conv1d.
+        # x: [B, 128, 6] → [B, 6, 128]
         x = x.permute(0, 2, 1)
-        x = self.project(x)       # Now x is [B, 128, 128]
-        x = self.upsample(x)      # Now x is [B, 128, 512]
-        x = x.permute(0, 2, 1)    # Now x is [B, 512, 128]
+        x = self.project(x)  # [B, 128, 128]
+
+        # Reshape to 4D to apply bicubic: [B, C, 1, T]
+        x = x.unsqueeze(2)  # → [B, 128, 1, 128]
+
+        # Bicubic interpolation over the time axis
+        x = F.interpolate(x, size=(1, self.out_time), mode='bicubic', align_corners=False)  # → [B, 128, 1, 512]
+
+        x = x.squeeze(2)  # → [B, 128, 512]
+        x = x.permute(0, 2, 1)  # → [B, 512, 128]
         return x
 
 # =============================================================================
@@ -101,7 +108,7 @@ def main(config):
         root_dir=config.root_path,
         window_size=config.time_len,
         features=config.in_chans,
-        subjects_per_batch=32,
+        subjects_per_batch=2,
         files_per_subject=4,
         transform=None
     )
@@ -110,7 +117,7 @@ def main(config):
     # Create DataLoader
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True,
                             num_workers=4, pin_memory=True)
-
+    config.steps_per_epoch = len(dataloader)
     # Create IMUAdapter and place it on device
     imu_adapter = IMUAdapter(out_chans=128, out_time=512).to(device)
 
@@ -149,6 +156,8 @@ def main(config):
         # Wrap dataloader to insert IMUAdapter processing before training
         def adapted_dataloader():
             for batch in dataloader:
+                if batch.dim() == 4:
+                    batch = batch.squeeze(0)
                 batch = batch.to(device)  # shape: [B, 128, 6]
                 batch = imu_adapter(batch)  # shape: [B, 512, 128]
                 yield batch

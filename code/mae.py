@@ -198,6 +198,7 @@ class MAEforEEG(nn.Module):
 
     def forward_encoder(self, x, mask_ratio):
         # embed patches
+        x = x.permute(0, 2, 1)
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
@@ -216,6 +217,8 @@ class MAEforEEG(nn.Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
+        
+        # print("x_transformer: ", x.shape)
 
         return x, mask, ids_restore
 
@@ -246,7 +249,7 @@ class MAEforEEG(nn.Module):
 
         # remove cls token
         x = x[:, 1:, :]
-
+        
         return x
 
     def forward_nature_img_decoder(self, x, ids_restore):
@@ -292,9 +295,10 @@ class MAEforEEG(nn.Module):
         mask: [N, L], 0 is keep, 1 is remove, 
         """
         imgs = imgs.transpose(1,2)
-        target = self.patchify(imgs)
+        # target = self.patchify(imgs)
+        # print("imgs_dim :", target.shape)
         # target = imgs.transpose(1,2)
-        loss = (pred - target) ** 2
+        loss = (pred - imgs) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
         # loss = loss.mean()
         loss = (loss * mask).sum() / mask.sum()  if mask.sum() != 0 else (loss * mask).sum() # mean loss on removed patches

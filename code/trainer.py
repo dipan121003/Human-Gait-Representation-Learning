@@ -61,7 +61,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
     for data_iter_step, samples in enumerate(data_loader):
 
         if data_iter_step % accum_iter == 0:
-            ut.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, config)
+            ut.adjust_learning_rate(optimizer, data_iter_step / config.steps_per_epoch + epoch, config)
 
         samples = samples.to(device)
 
@@ -70,6 +70,8 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             loss, pred, _ = model(samples, mask_ratio=config.mask_ratio)
 
         loss_value = loss.item()
+        # print("loss: ", loss_value)
+        print(f'[Epoch {epoch}] loss: {loss_value}')
 
         if not math.isfinite(loss_value):
             print(f"Loss is {loss_value}, stopping training at step {data_iter_step} epoch {epoch}")
@@ -80,6 +82,8 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
         pred = pred.to('cpu').detach()
         samples = samples.to('cpu').detach()
         pred = model_without_ddp.unpatchify(pred)
+        
+        pred = pred.permute(0, 2, 1)
 
         cor = torch.mean(torch.tensor([
             torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)], axis=0))[0, 1]
@@ -104,6 +108,6 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             log_writer.log('time (min)', (time.time() - start_time) / 60.0, step=epoch)
 
     if config.local_rank == 0:
-        print(f'[Epoch {epoch}] loss: {np.mean(total_loss)}')
+        print(f'[Epoch {epoch}] loss_mean: {np.mean(total_loss)}')
 
     return np.mean(total_cor)

@@ -12,7 +12,7 @@ def create_window(data, start_idx, window_size):
         # Not enough data from start_idx to end; need to wrap and repeat
         remaining_length = window_size - (len(data) - start_idx)
         repeats = (remaining_length // len(data)) + 1
-        extended_data = np.tile(data, (repeats, 1))
+        extended_data = np.tile(data[1:], (repeats, 1))
         return np.concatenate((data[start_idx:], extended_data[:remaining_length]), axis=0)
 
 
@@ -96,12 +96,12 @@ class IMUDataset(Dataset):
 # Example usage:
 if __name__ == '__main__':
     # Path to your processed_data folder
-    root_dir = r'C:\CS-671_project\Data_Processed\Self-supervised_Training_data_arranged'
+    root_dir = r'D:\Self_supervise_data\train'
     dataset = IMUDataset(root_dir=root_dir, window_size=128, features=6,
                          subjects_per_batch=32, files_per_subject=4)
 
     # Create a DataLoader with num_workers = 4 and pin_memory enabled for efficient GPU transfer.
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=False, num_workers=1, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
 
     # Iterate through one batch
     for batch in dataloader:
