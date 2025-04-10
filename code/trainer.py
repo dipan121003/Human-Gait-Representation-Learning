@@ -67,8 +67,20 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            loss, pred, _ = model(samples, mask_ratio=config.mask_ratio)
+            '''print("✅ Checking sample before model forward")
+            print("Sample shape:", samples.shape)
+            print("NaNs:", torch.isnan(samples).any().item())
+            print("Infs:", torch.isinf(samples).any().item())'''
 
+            loss, pred, _ = model(samples, mask_ratio=config.mask_ratio)
+            '''print("✅ Checking loss value")
+            print("Loss:", loss.item() if not torch.isnan(loss) else "NaN ❌")'''
+
+            '''if torch.isnan(loss) or torch.isinf(loss):
+                print("⚠️ Loss became NaN or Inf — skipping this batch")
+                continue'''
+
+        print("Epoch : ",epoch," Loss : ",loss)
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):

@@ -7,13 +7,26 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
-
+import torch.nn.functional as F
 # Import configuration and modules from your project files.
 from config import Config_MBM_EEG
 from dataset import IMUDataset  # Updated: use IMUDataset from dataset.py
 from mae import MAEforEEG, PatchEmbed1D
 from trainer import train_one_epoch, NativeScalerWithGradNormCount as NativeScaler
 from utils import adjust_learning_rate, save_model
+
+
+class BicubicUpsample1D(nn.Module):
+    def __init__(self, out_time):
+        super().__init__()
+        self.out_time = out_time
+
+    def forward(self, x):
+        # x: [B, C, T]
+        x = x.unsqueeze(2)  # → [B, C, 1, T]
+        x = F.interpolate(x, size=(1, self.out_time), mode='bicubic', align_corners=True)
+        x = x.squeeze(2)    # → [B, C, out_time]
+        return x
 
 class IMUAdapter(nn.Module):
     def __init__(self, out_chans=128, out_time=512):
@@ -23,17 +36,16 @@ class IMUAdapter(nn.Module):
             nn.ReLU(),
             nn.Conv1d(out_chans, out_chans, kernel_size=3, padding=1)
         )
-        self.upsample = nn.Upsample(size=out_time, mode='nearest', align_corners=False)  # Upsample time dimension from 128 to out_time (512)
+        self.upsample = BicubicUpsample1D(out_time) # Upsample time dimension from 128 to out_time (512)
 
     def forward(self, x):
         # x: [B, 128, 6] where 128 is timestamp dimension and 6 is channels.
         # Permute to [B, 6, 128] for Conv1d.
-        '''if x.dim()==4:
-            x.squeeze(0)'''
+        #print(x.shape)
         x = x.permute(0, 2, 1)
         x = self.project(x)       # Now x is [B, 128, 128]
         x = self.upsample(x)      # Now x is [B, 128, 512]
-        x = x.permute(0, 2, 1)    # Now x is [B, 512, 128]
+        #x = x.permute(0, 2, 1)    # Now x is [B, 512, 128]
         return x
 
 # =============================================================================
@@ -143,6 +155,7 @@ def main(config):
     print("Starting IMU MAE pretraining...")
     start_time = time.time()
     cor_list = []
+    torch.autograd.set_detect_anomaly(True)
 
     for epoch in range(config.num_epoch):
         current_lr = adjust_learning_rate(optimizer, epoch, config)
@@ -151,8 +164,22 @@ def main(config):
         # Wrap dataloader to insert IMUAdapter processing before training
         def adapted_dataloader():
             for batch in dataloader:
+                #print("Batch Shape before: ",batch.shape)
+                if batch.dim()==4:
+                    batch=batch.squeeze(0)
+                #print("Batch Shape after: ",batch.shape)
                 batch = batch.to(device)  # shape: [B, 128, 6]
+                '''print("✅ Checking for NaNs/Infs BEFORE imu_adapter")
+                print("NaNs in batch:", torch.isnan(batch).any().item())
+                print("Infs in batch:", torch.isinf(batch).any().item())'''
+
                 batch = imu_adapter(batch)  # shape: [B, 512, 128]
+               
+
+                '''print("✅ Checking for NaNs/Infs AFTER imu_adapter")
+                print("NaNs in adapted batch:", torch.isnan(batch).any().item())
+                print("Infs in adapted batch:", torch.isinf(batch).any().item())'''
+
                 yield batch
 
         # Train for one epoch using adapted data

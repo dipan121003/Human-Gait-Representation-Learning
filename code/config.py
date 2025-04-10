@@ -29,8 +29,8 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.mlp_ratio = 1.0
 
         # Project setting
-        self.root_path = r'C:\Users\amuel\Desktop\Self_supervise_data'
-        self.output_path = r'C:\Users\amuel\Desktop\exps'
+        self.root_path = r'C:\\Users\\amuel\\Desktop\\Self_supervise_data\\train'
+        self.output_path = r'C:\\Users\\amuel\\Desktop\\exps'
         self.seed = 21
         self.roi = 'VC'
         self.aug_times = 1
