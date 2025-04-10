@@ -17,7 +17,7 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.warmup_epochs = 40
         self.batch_size = 1 # Adjust this as needed
         self.clip_grad = 0.8
-
+        self.steps_per_epoch=128
         # Model Parameters
         self.mask_ratio = 0.75  # Updated for EEG/IMU data
         self.patch_size = 4
@@ -29,9 +29,9 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.mlp_ratio = 1.0
 
         # Project setting
-        self.root_path = r'C:\CS-671_project\Data_Processed\Self-supervised_Training_data_arranged'
-        self.output_path = r'C:\CS-671_project\exps'
-        self.seed = 2022
+        self.root_path = r'C:\Users\amuel\Desktop\Self_supervise_data'
+        self.output_path = r'C:\Users\amuel\Desktop\exps'
+        self.seed = 21
         self.roi = 'VC'
         self.aug_times = 1
         self.num_sub_limit = None

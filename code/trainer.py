@@ -61,7 +61,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
     for data_iter_step, samples in enumerate(data_loader):
 
         if data_iter_step % accum_iter == 0:
-            ut.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, config)
+            ut.adjust_learning_rate(optimizer, data_iter_step / config.steps_per_epoch + epoch, config)
 
         samples = samples.to(device)
 
