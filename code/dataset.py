@@ -101,7 +101,7 @@ if __name__ == '__main__':
                          subjects_per_batch=32, files_per_subject=4)
 
     # Create a DataLoader with num_workers = 4 and pin_memory enabled for efficient GPU transfer.
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=False, num_workers=1, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
 
     # Iterate through one batch
     for batch in dataloader:

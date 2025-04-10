@@ -15,7 +15,7 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.weight_decay = 0.05
         self.num_epoch = 10
         self.warmup_epochs = 40
-        self.batch_size = 128  # Adjust this as needed
+        self.batch_size = 1 # Adjust this as needed
         self.clip_grad = 0.8
 
         # Model Parameters

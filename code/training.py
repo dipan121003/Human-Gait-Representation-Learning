@@ -28,6 +28,8 @@ class IMUAdapter(nn.Module):
     def forward(self, x):
         # x: [B, 128, 6] where 128 is timestamp dimension and 6 is channels.
         # Permute to [B, 6, 128] for Conv1d.
+        if x.dim()==4:
+            x.squeeze(0)
         x = x.permute(0, 2, 1)
         x = self.project(x)       # Now x is [B, 128, 128]
         x = self.upsample(x)      # Now x is [B, 128, 512]
