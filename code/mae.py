@@ -222,8 +222,9 @@ class MAEforEEG(nn.Module):
     def forward_decoder(self, x, ids_restore = None):
         # embed tokens
         x = self.decoder_embed(x)
-        # print('decoder embed')
-        # print(x.shape)
+        
+        print('decoder embed')
+        print(x.shape)
         # append mask tokens to sequence
         mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] + 1 - x.shape[1], 1)
         x_ = torch.cat([x[:, 1:, :], mask_tokens], dim=1)  # no cls token
@@ -239,9 +240,11 @@ class MAEforEEG(nn.Module):
         for blk in self.decoder_blocks:
             x = blk(x)
         x = self.decoder_norm(x)
+        # print('decoder_transformer_out')
         # print(x.shape)
         # predictor projection
         x = self.decoder_pred(x)
+        # print('decoder_pred')
         # print(x.shape)
 
         # remove cls token
@@ -293,6 +296,7 @@ class MAEforEEG(nn.Module):
         """
         imgs = imgs.transpose(1,2)
         target = self.patchify(imgs)
+        print("Target size: ",target.shape)
         # target = imgs.transpose(1,2)
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch

@@ -12,7 +12,7 @@ def create_window(data, start_idx, window_size):
         # Not enough data from start_idx to end; need to wrap and repeat
         remaining_length = window_size - (len(data) - start_idx)
         repeats = (remaining_length // len(data)) + 1
-        extended_data = np.tile(data[1:], (repeats, 1))
+        extended_data = np.tile(data, (repeats, 1))
         return np.concatenate((data[start_idx:], extended_data[:remaining_length]), axis=0)
 
 

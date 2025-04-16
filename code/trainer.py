@@ -65,6 +65,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             ut.adjust_learning_rate(optimizer, data_iter_step / config.steps_per_epoch + epoch, config)
 
         samples = samples.to(device)
+        print('sample_size: ', samples.shape)
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
