@@ -13,7 +13,7 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.lr = 2.5e-4
         self.min_lr = 0.
         self.weight_decay = 0.05
-        self.num_epoch = 10
+        self.num_epoch = 3000
         self.warmup_epochs = 40
         self.batch_size = 1 # Adjust this as needed
         self.clip_grad = 0.8
@@ -29,8 +29,8 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.mlp_ratio = 1.0
 
         # Project setting
-        self.root_path = r'C:\\Users\\amuel\\Desktop\\Self_supervise_data\\train'
-        self.output_path = r'C:\\Users\\amuel\\Desktop\\exps'
+        self.root_path = r"D:\Self_supervise_data\train"
+        self.output_path = r"D:\Self_supervise_data\exps"
         self.seed = 21
         self.roi = 'VC'
         self.aug_times = 1

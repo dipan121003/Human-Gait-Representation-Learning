@@ -190,7 +190,7 @@ def main(config):
         print(f"Epoch {epoch+1}: Average correlation: {cor:.4f}")
 
         # Save checkpoint
-        if (epoch % 20 == 0) or (epoch + 1 == config.num_epoch):
+        if (epoch % 500 == 0) or (epoch + 1 == config.num_epoch):
             checkpoint_dir = os.path.join(output_dir, 'checkpoints')
             os.makedirs(checkpoint_dir, exist_ok=True)
             save_model(config, epoch, model_without_ddp, optimizer, loss_scaler, checkpoint_dir)
