@@ -13,11 +13,11 @@ class Config_MBM_EEG(Config_MAE_fMRI):
         self.lr = 2.5e-4
         self.min_lr = 0.
         self.weight_decay = 0.05
-        self.num_epoch = 10
+        self.num_epoch = 3000
         self.warmup_epochs = 40
         self.batch_size = 1 # Adjust this as needed
         self.clip_grad = 0.8
-        self.steps_per_epoch=128
+        self.steps_per_epoch=200
         # Model Parameters
         self.mask_ratio = 0.75  # Updated for EEG/IMU data
         self.patch_size = 4
