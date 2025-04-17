@@ -57,6 +57,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
     total_loss = []
     total_cor = []
     accum_iter = config.accum_iter
+    batch = 0
 
     for data_iter_step, samples in enumerate(data_loader):
 
@@ -64,6 +65,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             ut.adjust_learning_rate(optimizer, data_iter_step / config.steps_per_epoch + epoch, config)
 
         samples = samples.to(device)
+        print('sample_size: ', samples.shape)
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
@@ -80,8 +82,10 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
                 print("⚠️ Loss became NaN or Inf — skipping this batch")
                 continue'''
 
-        print("Epoch : ",epoch," Loss : ",loss)
+        
         loss_value = loss.item()
+        print("Epoch : ",epoch," batch_no: ",batch," Loss : ",loss_value)
+        batch += 1
 
         if not math.isfinite(loss_value):
             print(f"Loss is {loss_value}, stopping training at step {data_iter_step} epoch {epoch}")

@@ -12,7 +12,7 @@ def create_window(data, start_idx, window_size):
         # Not enough data from start_idx to end; need to wrap and repeat
         remaining_length = window_size - (len(data) - start_idx)
         repeats = (remaining_length // len(data)) + 1
-        extended_data = np.tile(data[1:], (repeats, 1))
+        extended_data = np.tile(data, (repeats, 1))
         return np.concatenate((data[start_idx:], extended_data[:remaining_length]), axis=0)
 
 
@@ -58,7 +58,7 @@ class IMUDataset(Dataset):
         self.subject_dirs = [s for s in self.subject_dirs if s in self.subject_files]
 
         # Define an arbitrary dataset length since we sample randomly each time.
-        self._length = 10000
+        self._length = 200
 
     def __len__(self):
         return self._length
@@ -79,9 +79,9 @@ class IMUDataset(Dataset):
                 df = pd.read_csv(csv_file, header=None)
                 data = df.apply(pd.to_numeric, errors='coerce').values.astype(np.float32)
                 # Fix NaNs (if any)
-                '''if np.isnan(data).any():
+                if np.isnan(data).any():
                     #print(f"⚠️ NaNs found in file {csv_file} — replacing with zeros.")
-                    data = np.nan_to_num(data, nan=0.0)'''
+                    data = np.nan_to_num(data, nan=0.0)
                 n = data.shape[0]
                 # Randomly choose a pivot index.
                 i = np.random.randint(1, n)
