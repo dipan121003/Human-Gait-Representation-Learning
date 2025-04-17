@@ -15,28 +15,28 @@ from mae import MAEforEEG, PatchEmbed1D
 from trainer import train_one_epoch, NativeScalerWithGradNormCount as NativeScaler
 from utils import adjust_learning_rate, save_model
 
-
-class BicubicUpsample1D(nn.Module):
-    def __init__(self, out_time):
-        super().__init__()
-        self.out_time = out_time
-
-    def forward(self, x):
-        # x: [B, C, T]
-        x = x.unsqueeze(2)  # → [B, C, 1, T]
-        x = F.interpolate(x, size=(1, self.out_time), mode='bicubic', align_corners=True)
-        x = x.squeeze(2)    # → [B, C, out_time]
-        return x
-
-class IMUAdapter(nn.Module):
-    def __init__(self, out_chans=128, out_time=512):
+class ModelAdapted(nn.Module):
+    def __init__(self, model, out_chans=128):
         super().__init__()
         self.project = nn.Sequential(
             nn.Conv1d(6, out_chans, kernel_size=3, padding=1),  # Converts 6 channels to 128 channels
             nn.ReLU(),
             nn.Conv1d(out_chans, out_chans, kernel_size=3, padding=1)
         )
-        self.upsample = BicubicUpsample1D(out_time) # Upsample time dimension from 128 to out_time (512)
+        self.mae = MAEforEEG(
+                        time_len=128,
+                        patch_size=config.patch_size,
+                        embed_dim=config.embed_dim,
+                        in_chans=128,
+                        depth=config.depth,
+                        num_heads=config.num_heads,
+                        decoder_embed_dim=config.decoder_embed_dim,
+                        decoder_depth=8,
+                        decoder_num_heads=config.decoder_num_heads,
+                        mlp_ratio=config.mlp_ratio,
+                        img_recon_weight=config.img_recon_weight,
+                        use_nature_img_loss=config.use_nature_img_loss
+                    )
 
     def forward(self, x):
         # x: [B, 128, 6] where 128 is timestamp dimension and 6 is channels.
@@ -44,9 +44,10 @@ class IMUAdapter(nn.Module):
         #print(x.shape)
         x = x.permute(0, 2, 1)
         x = self.project(x)       # Now x is [B, 128, 128]
-        x = self.upsample(x)      # Now x is [B, 128, 512]
+        loss, pred, _ = self.mae(x)
+        # x = self.upsample(x)      # Now x is [B, 128, 512]
         #x = x.permute(0, 2, 1)    # Now x is [B, 512, 128]
-        return x
+        return loss, pred
 
 # =============================================================================
 # Training Script for EEG/IMU Pretraining with MAE
@@ -125,29 +126,15 @@ def main(config):
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True,
                             num_workers=4, pin_memory=True)
     config.steps_per_epoch=len(dataloader)
-    # Create IMUAdapter and place it on device
-    imu_adapter = IMUAdapter(out_chans=128, out_time=512).to(device)
+    # Create ModelAdapted and place it on device
+    model = ModelAdapted(out_chans=128).to(device)
 
     # Create the MAE model (expects [batch, 512, 128])
-    model = MAEforEEG(
-        time_len=512,
-        patch_size=config.patch_size,
-        embed_dim=config.embed_dim,
-        in_chans=128,
-        depth=config.depth,
-        num_heads=config.num_heads,
-        decoder_embed_dim=config.decoder_embed_dim,
-        decoder_depth=8,
-        decoder_num_heads=config.decoder_num_heads,
-        mlp_ratio=config.mlp_ratio,
-        img_recon_weight=config.img_recon_weight,
-        use_nature_img_loss=config.use_nature_img_loss
-    )
     model.to(device)
     model_without_ddp = model
 
     # Optimizer and loss scaler
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr,
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr,
                                   weight_decay=config.weight_decay, betas=(0.9, 0.95))
     loss_scaler = NativeScaler()
 
@@ -161,24 +148,12 @@ def main(config):
         current_lr = adjust_learning_rate(optimizer, epoch, config)
         print(f"Epoch {epoch+1}/{config.num_epoch} | LR: {current_lr:.6f}")
 
-        # Wrap dataloader to insert IMUAdapter processing before training
+        # Wrap dataloader to insert ModelAdapted processing before training
         def adapted_dataloader():
             for batch in dataloader:
-                #print("Batch Shape before: ",batch.shape)
                 if batch.dim()==4:
                     batch=batch.squeeze(0)
-                #print("Batch Shape after: ",batch.shape)
                 batch = batch.to(device)  # shape: [B, 128, 6]
-                '''print("✅ Checking for NaNs/Infs BEFORE imu_adapter")
-                print("NaNs in batch:", torch.isnan(batch).any().item())
-                print("Infs in batch:", torch.isinf(batch).any().item())'''
-
-                batch = imu_adapter(batch)  # shape: [B, 512, 128]
-               
-
-                '''print("✅ Checking for NaNs/Infs AFTER imu_adapter")
-                print("NaNs in adapted batch:", torch.isnan(batch).any().item())
-                print("Infs in adapted batch:", torch.isinf(batch).any().item())'''
 
                 yield batch
 
