@@ -58,7 +58,7 @@ class IMUDataset(Dataset):
         self.subject_dirs = [s for s in self.subject_dirs if s in self.subject_files]
 
         # Define an arbitrary dataset length since we sample randomly each time.
-        self._length = 10000
+        self._length = 200
 
     def __len__(self):
         return self._length
@@ -78,6 +78,10 @@ class IMUDataset(Dataset):
                 # Load CSV data. We assume no header; adjust as needed.
                 df = pd.read_csv(csv_file, header=None)
                 data = df.apply(pd.to_numeric, errors='coerce').values.astype(np.float32)
+                # Fix NaNs (if any)
+                if np.isnan(data).any():
+                    #print(f"⚠️ NaNs found in file {csv_file} — replacing with zeros.")
+                    data = np.nan_to_num(data, nan=0.0)
                 n = data.shape[0]
                 # Randomly choose a pivot index.
                 i = np.random.randint(1, n)
@@ -101,7 +105,7 @@ if __name__ == '__main__':
                          subjects_per_batch=32, files_per_subject=4)
 
     # Create a DataLoader with num_workers = 4 and pin_memory enabled for efficient GPU transfer.
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=False, num_workers=1, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
 
     # Iterate through one batch
     for batch in dataloader:
