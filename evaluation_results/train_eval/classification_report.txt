@@ -1,0 +1,18 @@
+Train Accuracy: 0.754464
+
+              precision    recall  f1-score   support
+
+     Bending     0.6471    0.6875    0.6667        16
+     Cycling     0.7143    0.8333    0.7692         6
+        Fall     0.8169    0.9206    0.8657        63
+     Jogging     0.7143    1.0000    0.8333         5
+     Jumping     0.9333    0.6087    0.7368        23
+      Laying     0.6000    0.6000    0.6000        25
+     Running     0.9286    1.0000    0.9630        13
+     Sitting     0.5484    0.5667    0.5574        30
+       Stair     0.8125    0.6842    0.7429        19
+        Walk     0.8571    0.7500    0.8000        24
+
+    accuracy                         0.7545       224
+   macro avg     0.7572    0.7651    0.7535       224
+weighted avg     0.7619    0.7545    0.7522       224

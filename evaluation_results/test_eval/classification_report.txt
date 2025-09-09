@@ -1,0 +1,18 @@
+Test Accuracy: 0.750000
+
+              precision    recall  f1-score   support
+
+     Bending     0.6875    0.6875    0.6875        16
+     Cycling     0.8333    0.8333    0.8333         6
+        Fall     0.8056    0.9206    0.8593        63
+     Jogging     0.7143    1.0000    0.8333         5
+     Jumping     0.8235    0.6087    0.7000        23
+      Laying     0.5556    0.6000    0.5769        25
+     Running     0.9286    1.0000    0.9630        13
+     Sitting     0.5517    0.5333    0.5424        30
+       Stair     0.8125    0.6842    0.7429        19
+        Walk     0.9000    0.7500    0.8182        24
+
+    accuracy                         0.7500       224
+   macro avg     0.7613    0.7618    0.7557       224
+weighted avg     0.7536    0.7500    0.7472       224

@@ -4,6 +4,7 @@ import torch.nn as nn
 import numpy as np
 from timm.models.vision_transformer import Block
 import torch.nn.functional as F
+from classification_model.autoencoder import IMUAutoencoder
 
 class PatchEmbed1D(nn.Module):
     """ 1 Dimensional version of data (fmri voxels) to Patch Embedding
@@ -28,15 +29,93 @@ class PatchEmbed1D(nn.Module):
 class MAEforEEG(nn.Module):
     """ Masked Autoencoder with VisionTransformer backbone
     """
-    def __init__(self, time_len=512, patch_size=4, embed_dim=1024, in_chans=128,
+    def __init__(self, time_len=212, patch_size=4, embed_dim=1024, in_chans=128, out_chans=128,
                  depth=24, num_heads=16, decoder_embed_dim=512, 
                  decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, focus_range=None, focus_rate=None, img_recon_weight=1.0, 
-                 use_nature_img_loss=False):
+                 use_nature_img_loss=False, autoencoder_path=None, projection_type='autoencoder'):
         super().__init__()
 
         # --------------------------------------------------------------------------
         # MAE encoder specifics
+
+        # Choose projection method based on parameter
+        self.projection_type = projection_type
+        
+        if projection_type == 'autoencoder' and autoencoder_path:
+            # Use the autoencoder's encoder 
+            autoencoder = IMUAutoencoder()
+            autoencoder.load_state_dict(torch.load(autoencoder_path, map_location='cpu'))
+            self.project = autoencoder.encoder
+            print("✅ Project: autoencoder")
+            
+            # Freeze the encoder weights if needed
+            for param in self.project.parameters():
+                param.requires_grad = False
+        
+        elif projection_type == 'conv':
+            # Use a simple convolutional projection
+            self.project = nn.Sequential(
+                nn.Conv1d(6, 32, kernel_size=3, padding=1),
+                nn.BatchNorm1d(32),
+                nn.GELU(),
+                nn.Conv1d(32, 64, kernel_size=3, padding=1),
+                nn.BatchNorm1d(64),
+                nn.GELU(),
+                nn.Conv1d(64, 128, kernel_size=3, padding=1),
+                nn.BatchNorm1d(128),
+                nn.GELU()
+            )
+            print("✅ Project: convolutional sequential")
+            
+        elif projection_type == 'linear':
+            # Use a simple linear projection (reshape and project)
+            self.project = nn.Sequential(
+                nn.Flatten(1, 2),  # Flatten time and channel dimensions
+                nn.Linear(6 * time_len, 128 * time_len),  # Linear projection
+                nn.Unflatten(1, (128, time_len))  # Reshape back to [B, 128, time_len]
+            )
+            print("✅ Project: linear projection")
+            
+        elif projection_type == 'attention':
+            # Use cross-attention to project from 6 to 128 channels
+            self.query_embed = nn.Parameter(torch.zeros(1, time_len, 128))
+            nn.init.normal_(self.query_embed, std=0.02)
+            
+            self.project = nn.Sequential(
+                nn.Conv1d(6, 32, kernel_size=1),  # Initial projection to intermediate dim
+                nn.BatchNorm1d(32),
+                nn.GELU(),
+                nn.Flatten(2, 2),  # Prepare for attention [B, 32, T] -> [B, 32, T, 1]
+            )
+            
+            self.cross_attn = nn.MultiheadAttention(
+                embed_dim=32, 
+                num_heads=4, 
+                batch_first=True
+            )
+            
+            self.final_proj = nn.Sequential(
+                nn.Linear(32, 128),
+                nn.LayerNorm(128)
+            )
+            
+            print("✅ Project: attention-based")
+        else:
+            # Default to simple projection
+            self.project = nn.Sequential(
+                nn.Conv1d(6, 128, kernel_size=3, padding=1),
+                nn.BatchNorm1d(128),
+                nn.Conv1d(128, 128, kernel_size=3, padding=1),
+                nn.BatchNorm1d(128)
+            )
+
+            # Freeze the encoder weights if needed
+            for param in self.project.parameters():
+                param.requires_grad = False
+
+            print("✅ Project: default sequential")
+
         self.patch_embed = PatchEmbed1D(time_len, patch_size, in_chans, embed_dim)
 
         num_patches = int(time_len / patch_size)
@@ -197,15 +276,41 @@ class MAEforEEG(nn.Module):
         return x_masked, mask, ids_restore
 
     def forward_encoder(self, x, mask_ratio):
+        # Handle different projection types
+        if self.projection_type == 'attention':
+            # For attention-based projection
+            x_proj = self.project(x)  # [B, 32, T]
+            x_proj = x_proj.transpose(1, 2)  # [B, T, 32]
+            
+            # Create query embeddings
+            query = self.query_embed.repeat(x.size(0), 1, 1)  # [B, T, 128]
+            
+            # Cross-attention between input features and learnable queries
+            attn_output, _ = self.cross_attn(
+                query=query,  # [B, T, 128]
+                key=x_proj,   # [B, T, 32]
+                value=x_proj  # [B, T, 32]
+            )
+            
+            # Final projection
+            x = self.final_proj(attn_output)  # [B, T, 128]
+            x = x.transpose(1, 2)  # [B, 128, T]
+        else:
+            # For other projection types
+            x = self.project(x)  # [B, 128, T]
+            
+        input_in_loss = x
+        
         # embed patches
         x = self.patch_embed(x)
-
+        
         # add pos embed w/o cls token
         x = x + self.pos_embed[:, 1:, :]
         # print('encoder embed')
         # print(x.shape)
         # masking: length -> length * mask_ratio
         x, mask, ids_restore = self.random_masking(x, mask_ratio)
+        # print("✅ x_masked_shape: ", x.shape)
 
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -216,12 +321,15 @@ class MAEforEEG(nn.Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
+        # print("✅ encoder_output_shape: ", x.shape)
 
-        return x, mask, ids_restore
+        return x, mask, ids_restore, input_in_loss
 
     def forward_decoder(self, x, ids_restore = None):
+        # print("✅ INSIDE FORWARD DECODER")
         # embed tokens
         x = self.decoder_embed(x)
+        # print("✅ x_decoder_embed_shape: ", x.shape)
         # print('decoder embed')
         # print(x.shape)
         # append mask tokens to sequence
@@ -230,6 +338,7 @@ class MAEforEEG(nn.Module):
         # x_ = torch.cat([x, mask_tokens], dim=1)  # no cls token
         x_ = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
         x = torch.cat([x[:, :1, :], x_], dim=1)  # append cls token
+        # print("✅ x_mask&cls_added_shape: ", x.shape)
         # x = x_
         # add pos embed
         x = x + self.decoder_pos_embed
@@ -246,6 +355,7 @@ class MAEforEEG(nn.Module):
 
         # remove cls token
         x = x[:, 1:, :]
+        # print("✅ decoder_output_shape/pred_shape: ", x.shape)
 
         return x
 
@@ -285,26 +395,32 @@ class MAEforEEG(nn.Module):
         return loss   
 
     def forward_loss(self, imgs, pred, mask):
-        """
+        """print("✅ IN FORWARD LOSS")
+        print("✅ x_shape: ", imgs.shape)
+        print("✅ pred_shape: ", pred.shape)
+
         imgs: [N, 1, num_voxels]
         imgs: [N, chan, T]
         pred: [N, L, p]
         mask: [N, L], 0 is keep, 1 is remove, 
         """
         imgs = imgs.transpose(1,2)
+        #print("imgs_in_loss: ", imgs.shape)
         target = self.patchify(imgs)
+        # print("✅ target_shape: ", target.shape)
         # target = imgs.transpose(1,2)
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
         # loss = loss.mean()
         loss = (loss * mask).sum() / mask.sum()  if mask.sum() != 0 else (loss * mask).sum() # mean loss on removed patches
+        # loss = loss * 1000  # Scale loss to prevent underflow
         return loss
 
     def forward(self, imgs, img_features=None, valid_idx=None, mask_ratio=0.75):
-        # latent = self.forward_encoder(imgs, mask_ratio)
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-            # print(x)
-        # print(latent.shape)
+        imgs = imgs.permute(0, 2, 1)  # [B, 6, T]
+        latent, mask, ids_restore, input = self.forward_encoder(imgs, mask_ratio)
+        # print(x)
+        print("✅ latent shape", latent.shape)
         # # print(mask)
         # print(mask.shape)
         # # print(ids_restore)
@@ -315,7 +431,7 @@ class MAEforEEG(nn.Module):
         # pred = pred
         # print(pred.shape)
         # mask=None
-        loss = self.forward_loss(imgs, pred, mask)
+        loss = self.forward_loss(input, pred, mask)
         # print(self.unpatchify(pred.transpose(1,2)).shape)
 
         if self.use_nature_img_loss and img_features is not None:

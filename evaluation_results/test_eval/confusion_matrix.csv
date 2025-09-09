@@ -1,0 +1,11 @@
+,Bending,Cycling,Fall,Jogging,Jumping,Laying,Running,Sitting,Stair,Walk
+Bending,11,0,1,0,0,1,0,2,1,0
+Cycling,1,5,0,0,0,0,0,0,0,0
+Fall,0,0,58,0,0,1,0,4,0,0
+Jogging,0,0,0,5,0,0,0,0,0,0
+Jumping,0,0,5,1,14,1,0,0,1,1
+Laying,0,0,2,0,1,15,0,7,0,0
+Running,0,0,0,0,0,0,13,0,0,0
+Sitting,2,0,4,0,0,8,0,16,0,0
+Stair,1,1,0,0,1,1,1,0,13,1
+Walk,1,0,2,1,1,0,0,0,1,18

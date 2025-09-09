@@ -1,0 +1,15 @@
+Average Loss: 3.024442
+Average MSE: 2.958253
+Average Correlation: 0.157110
+
+Top 10 Channels by Correlation:
+  Channel 62: 0.2517
+  Channel 10: 0.2479
+  Channel 7: 0.2453
+  Channel 26: 0.2347
+  Channel 83: 0.2286
+  Channel 90: 0.2266
+  Channel 94: 0.2221
+  Channel 64: 0.2163
+  Channel 86: 0.2125
+  Channel 43: 0.2124

@@ -4,12 +4,13 @@ import utils as ut
 from math import inf
 import numpy as np
 import time
+import numpy as np
 
 class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
     def __init__(self):
-        self._scaler = torch.cuda.amp.GradScaler()
+        self._scaler = torch.amp.GradScaler('cuda')
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
         self._scaler.scale(loss).backward(create_graph=create_graph)
@@ -48,7 +49,6 @@ def get_grad_norm_(parameters, norm_type: float = 2.0):
         total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type).to(device) for p in parameters]), norm_type)
     return total_norm
 
-
 def train_one_epoch(model, data_loader, optimizer, device, epoch, 
                     loss_scaler, log_writer=None, config=None, start_time=None, model_without_ddp=None, 
                     img_feature_extractor=None, preprocess=None):
@@ -57,39 +57,68 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
     total_loss = []
     total_cor = []
     accum_iter = config.accum_iter
+    batch = 0
 
     for data_iter_step, samples in enumerate(data_loader):
 
         if data_iter_step % accum_iter == 0:
-            ut.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, config)
+            ut.adjust_learning_rate(optimizer, data_iter_step / config.steps_per_epoch + epoch, config)
 
-        samples = samples.to(device)
+        samples = samples.to(device) #[S, T, C]
+        # print("✅ samples_shape: ", samples.shape)
 
         optimizer.zero_grad()
-        with torch.cuda.amp.autocast(enabled=True):
-            loss, pred, _ = model(samples, mask_ratio=config.mask_ratio)
+        with torch.amp.autocast(device_type='cuda', enabled=True):
+            '''print("✅ Checking sample before model forward")
+            print("Sample shape:", samples.shape)
+            print("NaNs:", torch.isnan(samples).any().item())
+            print("Infs:", torch.isinf(samples).any().item())'''
 
+            loss, pred, _ = model(samples, mask_ratio=config.mask_ratio)
+            # print("✅ OUT OF MODEL")
+            # print("✅ pred_shape: ", pred.shape)
+            '''print("✅ Checking loss value")
+            print("Loss:", loss.item() if not torch.isnan(loss) else "NaN ❌")'''
+
+            '''if torch.isnan(loss) or torch.isinf(loss):
+                print("⚠️ Loss became NaN or Inf — skipping this batch")
+                continue'''
+
+        
         loss_value = loss.item()
+        print("Epoch : ",epoch+1," step: ",data_iter_step+1,f" Loss : {loss_value:.4f}")
+        batch += 1
 
         if not math.isfinite(loss_value):
             print(f"Loss is {loss_value}, stopping training at step {data_iter_step} epoch {epoch}")
             sys.exit(1)
 
+        # pred = pred.to('cpu').detach()  # [B, L, patch_size*channels]
+        # recon = model_without_ddp.mae.unpatchify(pred)  # [B, C, T]
+
+        # Project input (original signal) before MAE
+        # projected = model_without_ddp.project(samples.permute(0, 2, 1))  # [B, C, T]
+
         loss_scaler(loss, optimizer, parameters=model.parameters(), clip_grad=config.clip_grad)
 
-        pred = pred.to('cpu').detach()
-        samples = samples.to('cpu').detach()
-        pred = model_without_ddp.unpatchify(pred)
+        '''# Compute correlation channel-wise (first 3 channels for example)
+        r = model_without_ddp.unpatchify(pred).cpu().detach()  # [B, 128, 128]
+        o = model_without_ddp.project(samples.permute(0, 2, 1)).cpu().detach()  #[S, C, T]
+        o = o.permute(0, 2, 1) #[S, T, C]
 
-        cor = torch.mean(torch.tensor([
-            torch.corrcoef(torch.cat([p[0].unsqueeze(0), s[0].unsqueeze(0)], axis=0))[0, 1]
-            for p, s in zip(pred, samples)
-        ])).item()
+        cors = []
+        for r_sample, o_sample in zip(r, o):  # loop through batch
+            for ch in range(r_sample.shape[0]):  # loop through all channels
+                corr = torch.corrcoef(torch.stack([r_sample[ch], o_sample[ch]]))[0, 1].item()
+                cors.append(corr)
+        cor = np.mean(cors)'''
+
+
 
         optimizer.zero_grad()
 
         total_loss.append(loss_value)
-        total_cor.append(cor)
+        # total_cor.append(cor)
 
         if device == torch.device('cuda:0'):
             lr = optimizer.param_groups[0]["lr"]
@@ -104,6 +133,26 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch,
             log_writer.log('time (min)', (time.time() - start_time) / 60.0, step=epoch)
 
     if config.local_rank == 0:
-        print(f'[Epoch {epoch}] loss: {np.mean(total_loss)}')
+        print(f'[Epoch {epoch+1}] loss: {np.mean(total_loss)}')
 
-    return np.mean(total_cor)
+    return np.mean(total_loss)
+
+@torch.no_grad()
+def evaluate(model, data_loader, device, config):
+    """
+    Evaluate model on validation set.
+    Returns average loss.
+    """
+    model.eval()
+    total_loss = []
+    
+    for samples in data_loader:
+        samples = samples.to(device)
+        loss, _, _ = model(samples, mask_ratio=config.mask_ratio)
+        total_loss.append(loss.item())
+
+    avg_loss = float(np.mean(total_loss))
+    print(f"[Val] Loss: {avg_loss:.4f}")
+    
+    return avg_loss
+
